@@ -30,14 +30,22 @@ async function requireAuth(req, res, next) {
     }
     
     const agent = await AgentService.findByApiKey(token);
-    
+
     if (!agent) {
       throw new UnauthorizedError(
         'Invalid or expired token',
         'Check your API key or register for a new one'
       );
     }
-    
+
+    // Check if agent is active
+    if (!agent.is_active) {
+      throw new UnauthorizedError(
+        'Account has been deactivated',
+        'Contact support to restore your account'
+      );
+    }
+
     // Attach agent to request (without sensitive data)
     req.agent = {
       id: agent.id,

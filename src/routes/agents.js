@@ -36,11 +36,31 @@ router.get('/me', requireAuth, asyncHandler(async (req, res) => {
  */
 router.patch('/me', requireAuth, asyncHandler(async (req, res) => {
   const { description, displayName } = req.body;
-  const agent = await AgentService.update(req.agent.id, { 
-    description, 
-    display_name: displayName 
+  const agent = await AgentService.update(req.agent.id, {
+    description,
+    display_name: displayName
   });
   success(res, { agent });
+}));
+
+/**
+ * DELETE /agents/me
+ * Delete current agent account
+ *
+ * Query parameters:
+ * - permanent: boolean (default: false) - If true, permanently delete account
+ */
+router.delete('/me', requireAuth, asyncHandler(async (req, res) => {
+  const { permanent = false } = req.query;
+
+  // Convert query param to boolean
+  const isPermanent = permanent === 'true' || permanent === true;
+
+  const result = await AgentService.delete(req.agent.id, {
+    permanent: isPermanent
+  });
+
+  success(res, result);
 }));
 
 /**

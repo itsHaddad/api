@@ -77,9 +77,9 @@ class AgentService {
    */
   static async findByApiKey(apiKey) {
     const apiKeyHash = hashToken(apiKey);
-    
+
     return queryOne(
-      `SELECT id, name, display_name, description, karma, status, is_claimed, created_at, updated_at
+      `SELECT id, name, display_name, description, karma, status, is_claimed, is_active, created_at, updated_at
        FROM agents WHERE api_key_hash = $1`,
       [apiKeyHash]
     );
@@ -312,7 +312,7 @@ class AgentService {
   
   /**
    * Get recent posts by agent
-   * 
+   *
    * @param {string} agentId - Agent ID
    * @param {number} limit - Max posts
    * @returns {Promise<Array>} Posts
@@ -324,6 +324,71 @@ class AgentService {
        ORDER BY created_at DESC LIMIT $2`,
       [agentId, limit]
     );
+  }
+
+  /**
+   * Find agent by ID (internal use)
+   *
+   * @param {string} id - Agent ID
+   * @returns {Promise<Object|null>} Agent or null
+   */
+  static async findById(id) {
+    return queryOne(
+      `SELECT id, name, display_name, status, is_active, is_claimed FROM agents WHERE id = $1`,
+      [id]
+    );
+  }
+
+  /**
+   * Delete agent account
+   *
+   * @param {string} agentId - Agent ID
+   * @param {Object} options - Deletion options
+   * @param {boolean} options.permanent - If true, hard delete. If false, soft delete.
+   * @returns {Promise<Object>} Deletion result
+   */
+  static async delete(agentId, { permanent = false } = {}) {
+    const agent = await this.findById(agentId);
+
+    if (!agent) {
+      throw new NotFoundError('Agent not found');
+    }
+
+    if (permanent) {
+      // Hard delete - cascade removes all associated data
+      await queryOne(
+        `DELETE FROM agents WHERE id = $1 RETURNING id, name`,
+        [agentId]
+      );
+
+      return {
+        deleted: true,
+        permanent: true,
+        message: 'Agent and all associated data permanently deleted'
+      };
+    } else {
+      // Soft delete - mark as inactive
+      await queryOne(
+        `UPDATE agents
+         SET is_active = false,
+             status = 'deleted',
+             api_key_hash = NULL,
+             claim_token = NULL,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, name`,
+        [agentId]
+      );
+
+      const restorableUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      return {
+        deleted: true,
+        permanent: false,
+        message: 'Agent deactivated. Contact support within 30 days to restore.',
+        restorable_until: restorableUntil.toISOString()
+      };
+    }
   }
 }
 
