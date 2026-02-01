@@ -116,4 +116,82 @@ describe('Agent Invitations', () => {
       expect(found).to.be.undefined;
     });
   });
+
+  describe('Security: Rate Limiting', () => {
+    it('should enforce rate limit of 10 invites per hour', async () => {
+      const testAgent = await AgentService.register({
+        name: `ratelimit_test_${Date.now()}`,
+        description: 'Rate limit test'
+      });
+      const sender = await AgentService.findByApiKey(testAgent.agent.api_key);
+
+      // Send 10 invites (should succeed)
+      for (let i = 0; i < 10; i++) {
+        await InviteService.create(sender.id, agentB.name, {
+          destination_url: `https://example.com/test${i}`
+        });
+      }
+
+      // 11th invite should fail
+      try {
+        await InviteService.create(sender.id, agentB.name, {
+          destination_url: 'https://example.com/test11'
+        });
+        expect.fail('Should have thrown rate limit error');
+      } catch (error) {
+        expect(error.name).to.equal('BadRequestError');
+        expect(error.message).to.include('Rate limit');
+      }
+    });
+  });
+
+  describe('Security: URL Validation', () => {
+    it('should reject non-http(s) URLs', async () => {
+      const maliciousUrls = [
+        'javascript:alert(1)',
+        'data:text/html,<script>alert(1)</script>',
+        'file:///etc/passwd',
+        'ftp://example.com'
+      ];
+
+      for (const url of maliciousUrls) {
+        try {
+          await InviteService.create(agentA.id, agentB.name, {
+            destination_url: url
+          });
+          expect.fail(`Should have rejected URL: ${url}`);
+        } catch (error) {
+          expect(error.name).to.equal('BadRequestError');
+          expect(error.message).to.include('Invalid destination URL');
+        }
+      }
+    });
+
+    it('should accept valid http and https URLs', async () => {
+      const validUrls = [
+        'https://example.com/chat',
+        'http://localhost:3000/test',
+        'https://sub.domain.com/path?query=value'
+      ];
+
+      for (const url of validUrls) {
+        const invite = await InviteService.create(agentA.id, agentB.name, {
+          destination_url: url
+        });
+        expect(invite.destination_url).to.equal(url);
+      }
+    });
+  });
+
+  describe('Security: Message Sanitization', () => {
+    it('should cap message length at 500 characters', async () => {
+      const longMessage = 'a'.repeat(1000);
+      const invite = await InviteService.create(agentA.id, agentB.name, {
+        destination_url: 'https://example.com/test',
+        message: longMessage
+      });
+
+      expect(invite.message.length).to.equal(500);
+    });
+  });
 });

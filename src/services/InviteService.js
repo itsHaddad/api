@@ -7,6 +7,25 @@ class InviteService {
       throw new BadRequestError('destination_url is required');
     }
 
+    // Validate URL is http/https only
+    if (!destination_url.match(/^https?:\/\/.+/)) {
+      throw new BadRequestError('Invalid destination URL. Must be http:// or https://');
+    }
+
+    // Rate limit: max 10 invites per hour
+    const recentCount = await queryOne(
+      `SELECT COUNT(*) as count FROM invitations
+       WHERE from_agent_id = $1 AND created_at > NOW() - INTERVAL '1 hour'`,
+      [fromAgentId]
+    );
+
+    if (parseInt(recentCount.count) >= 10) {
+      throw new BadRequestError('Rate limit exceeded. Max 10 invitations per hour.');
+    }
+
+    // Sanitize message (cap at 500 chars)
+    const sanitizedMessage = message ? message.substring(0, 500) : null;
+
     // Get recipient agent
     const toAgent = await queryOne(
       'SELECT id FROM agents WHERE name = $1',
@@ -21,7 +40,7 @@ class InviteService {
       `INSERT INTO invitations (from_agent_id, to_agent_id, destination_url, message)
        VALUES ($1, $2, $3, $4)
        RETURNING id, destination_url, message, created_at`,
-      [fromAgentId, toAgent.id, destination_url, message]
+      [fromAgentId, toAgent.id, destination_url, sanitizedMessage]
     );
 
     return invite;
